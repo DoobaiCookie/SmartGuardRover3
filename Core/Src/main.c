@@ -170,6 +170,306 @@ PUTCHAR_PROTOTYPE {
     HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, 10);
     return ch;
 }
+// ============================================================================
+// [DHT11 온습도 센서 함수 구현]
+// ============================================================================
+void DHT11_SetPinOutput(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = DHT11_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
+}
+
+void DHT11_SetPinInput(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = DHT11_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
+}
+
+void DHT11_SetPin(GPIO_PinState state) {
+    HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, state);
+}
+
+GPIO_PinState DHT11_ReadPin(void) {
+    return HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN);
+}
+
+void DHT11_DelayUs(uint32_t us) {
+    __HAL_TIM_SET_COUNTER(&htim1, 0);
+    while (__HAL_TIM_GET_COUNTER(&htim1) < us);
+}
+
+uint8_t DHT11_Start(void) {
+    uint8_t response = 0;
+    DHT11_SetPinOutput();
+    DHT11_SetPin(GPIO_PIN_RESET); HAL_Delay(20);
+    DHT11_SetPin(GPIO_PIN_SET); DHT11_DelayUs(30);
+    DHT11_SetPinInput();
+    DHT11_DelayUs(40);
+    if (!(DHT11_ReadPin())) {
+        DHT11_DelayUs(80);
+        if (DHT11_ReadPin()) response = 1; else response = 0;
+    }
+    while (DHT11_ReadPin());
+    return response;
+}
+
+uint8_t DHT11_ReadByte(void) {
+    uint8_t byte = 0;
+    for (int i = 0; i < 8; i++) {
+        while (!(DHT11_ReadPin()));
+        DHT11_DelayUs(30);
+        if (DHT11_ReadPin()) { byte |= (1 << (7 - i)); while (DHT11_ReadPin()); }
+    }
+    return byte;
+}
+
+uint8_t DHT11_ReadData(DHT11_Data *data) {
+    if (!DHT11_Start()) return 0;
+    data->humidity = DHT11_ReadByte();
+    data->hum_decimal = DHT11_ReadByte();
+    data->temperature = DHT11_ReadByte();
+    data->temp_decimal = DHT11_ReadByte();
+    data->checksum = DHT11_ReadByte();
+    if ((data->humidity + data->hum_decimal + data->temperature + data->temp_decimal) == data->checksum) return 1;
+    return 0;
+}
+
+// ============================================================================
+// [LCD 그래픽 함수 구현]
+// ============================================================================
+static void LCD_Cmd(uint8_t cmd) {
+    LCD_DC_LOW(); LCD_CS_LOW(); HAL_SPI_Transmit(&hspi1, &cmd, 1, 10); LCD_CS_HIGH();
+}
+static void LCD_Data(uint8_t data) {
+    LCD_DC_HIGH(); LCD_CS_LOW(); HAL_SPI_Transmit(&hspi1, &data, 1, 10); LCD_CS_HIGH();
+}
+static void LCD_SetWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
+    LCD_Cmd(ST7735_CASET); LCD_Data(0); LCD_Data(x0 + X_OFFSET); LCD_Data(0); LCD_Data(x1 + X_OFFSET);
+    LCD_Cmd(ST7735_RASET); LCD_Data(0); LCD_Data(y0 + Y_OFFSET); LCD_Data(0); LCD_Data(y1 + Y_OFFSET);
+    LCD_Cmd(ST7735_RAMWR);
+}
+static void LCD_WriteColorFast(uint16_t color, uint32_t count) {
+    uint8_t hi = color >> 8; uint8_t lo = color & 0xFF;
+    LCD_DC_HIGH(); LCD_CS_LOW();
+    while(count--) { HAL_SPI_Transmit(&hspi1, &hi, 1, 10); HAL_SPI_Transmit(&hspi1, &lo, 1, 10); }
+    LCD_CS_HIGH();
+}
+static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+    if(x >= LCD_WIDTH || y >= LCD_HEIGHT || w <= 0 || h <= 0) return;
+    if(x + w > LCD_WIDTH) w = LCD_WIDTH - x;
+    if(y + h > LCD_HEIGHT) h = LCD_HEIGHT - y;
+    LCD_SetWindow(x, y, x + w - 1, y + h - 1);
+    LCD_WriteColorFast(color, (uint32_t)w * h);
+}
+void LCD_Clear(uint16_t color) { LCD_FillRect(0, 0, LCD_WIDTH, LCD_HEIGHT, color); }
+
+static void LCD_HLine(int16_t x, int16_t y, int16_t w, uint16_t color) { LCD_FillRect(x, y, w, 1, color); }
+static void LCD_FillCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color) {
+    int16_t x = r, y = 0, err = 1 - r;
+    while(x >= y) {
+        LCD_HLine(x0 - x, y0 + y, x * 2 + 1, color); LCD_HLine(x0 - x, y0 - y, x * 2 + 1, color);
+        LCD_HLine(x0 - y, y0 + x, y * 2 + 1, color); LCD_HLine(x0 - y, y0 - x, y * 2 + 1, color);
+        y++; if(err < 0) err += 2 * y + 1; else { x--; err += 2 * (y - x + 1); }
+    }
+}
+static void LCD_RoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t r, uint16_t color) {
+    LCD_FillRect(x+r, y, w-2*r, h, color); LCD_FillRect(x, y+r, r, h-2*r, color);
+    LCD_FillRect(x+w-r, y+r, r, h-2*r, color);
+    LCD_FillCircle(x+r, y+r, r, color); LCD_FillCircle(x+w-r-1, y+r, r, color);
+    LCD_FillCircle(x+r, y+h-r-1, r, color); LCD_FillCircle(x+w-r-1, y+h-r-1, r, color);
+}
+static void LCD_ThickLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t t, uint16_t color) {
+    int16_t dx = abs(x1-x0), dy = abs(y1-y0), sx = (x0<x1)?1:-1, sy = (y0<y1)?1:-1, err = dx-dy;
+    while(1) {
+        LCD_FillRect(x0-t/2, y0-t/2, t, t, color);
+        if(x0==x1 && y0==y1) break;
+        int16_t e2=2*err; if(e2 > -dy){err-=dy; x0+=sx;} if(e2 < dx){err+=dx; y0+=sy;}
+    }
+}
+
+// [눈 그리기]
+static void Eye_Normal(int16_t cx, int16_t ox, int16_t oy) {
+    LCD_RoundRect(cx - EYE_W/2, CY - EYE_H/2, EYE_W, EYE_H, EYE_R, EYE_COLOR);
+    LCD_FillCircle(cx - 5 + ox, CY - 8 + oy, 4, EYE_BRIGHT);
+}
+static void Eye_Happy(int16_t cx) {
+    for(int16_t i = -EYE_W/2 + 2; i <= EYE_W/2 - 2; i++) {
+        int32_t n = (int32_t)i * i * 100 / ((EYE_W/2) * (EYE_W/2));
+        int16_t y = CY + 5 - (12 * (100 - n) / 100);
+        LCD_FillRect(cx + i, y - 3, 2, 5, EYE_COLOR);
+    }
+}
+// 악마 눈 (수정본)
+static void Eye_Angry(int16_t cx, uint8_t is_left) {
+    LCD_RoundRect(cx - EYE_W/2, CY - EYE_H/2 + 10, EYE_W, EYE_H - 14, EYE_R - 3, EYE_COLOR);
+    int16_t horn_base_inx = 5; int16_t horn_base_iny = 8;
+    int16_t horn_tip_outx = 12; int16_t horn_tip_outy = 12;
+    uint16_t horn_color = BLACK;
+
+    if(is_left) {
+        LCD_ThickLine(cx - EYE_W/2 + horn_base_inx, CY - EYE_H/2 + horn_base_iny, cx - EYE_W/2 - horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 6, horn_color);
+        LCD_ThickLine(cx - EYE_W/2 - horn_tip_outx + 3, CY - EYE_H/2 - horn_tip_outy + 3, cx - EYE_W/2 - horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 2, horn_color);
+        LCD_FillCircle(cx + 4, CY + 3, 4, BLACK);
+    } else {
+        LCD_ThickLine(cx + EYE_W/2 - horn_base_inx, CY - EYE_H/2 + horn_base_iny, cx + EYE_W/2 + horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 6, horn_color);
+        LCD_ThickLine(cx + EYE_W/2 + horn_tip_outx - 3, CY - EYE_H/2 - horn_tip_outy + 3, cx + EYE_W/2 + horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 2, horn_color);
+        LCD_FillCircle(cx - 4, CY + 3, 4, BLACK);
+    }
+    if(is_left) LCD_ThickLine(cx - EYE_W/2 - 2, CY - EYE_H/2 + 12, cx + EYE_W/2 + 2, CY - EYE_H/2 + 2, 4, EYE_COLOR);
+    else LCD_ThickLine(cx - EYE_W/2 - 2, CY - EYE_H/2 + 2, cx + EYE_W/2 + 2, CY - EYE_H/2 + 12, 4, EYE_COLOR);
+}
+
+void Draw_Expression(Expression_t expr, uint16_t bg_color) {
+    LCD_Clear(bg_color);
+    switch(expr) {
+        case EXPR_NORMAL: Eye_Normal(LX,0,0); Eye_Normal(RX,0,0); break;
+        case EXPR_HAPPY:  Eye_Happy(LX); Eye_Happy(RX); break;
+        case EXPR_ANGRY:  Eye_Angry(LX,1); Eye_Angry(RX,0); break;
+        default: Eye_Normal(LX,0,0); Eye_Normal(RX,0,0); break;
+    }
+}
+
+void LCD_Init(void) {
+    LCD_RES_LOW(); HAL_Delay(50); LCD_RES_HIGH(); HAL_Delay(50);
+    LCD_Cmd(ST7735_SWRESET); HAL_Delay(150);
+    LCD_Cmd(ST7735_SLPOUT); HAL_Delay(150);
+    LCD_Cmd(0xB1); LCD_Data(0x01); LCD_Data(0x2C); LCD_Data(0x2D);
+    LCD_Cmd(0xB4); LCD_Data(0x07);
+    LCD_Cmd(0xC0); LCD_Data(0xA2); LCD_Data(0x02); LCD_Data(0x84);
+    LCD_Cmd(ST7735_MADCTL); LCD_Data(0x60);
+    LCD_Cmd(ST7735_COLMOD); LCD_Data(0x05);
+    LCD_Cmd(ST7735_NORON); HAL_Delay(10);
+    LCD_Cmd(ST7735_DISPON); HAL_Delay(100);
+}
+
+void Update_Face_Logic(void) {
+    Expression_t target_expr = EXPR_HAPPY;
+    uint16_t target_bg = BLUE;
+
+    if (is_emergency == 1 || is_fire == 1) {
+        target_expr = EXPR_ANGRY;
+        target_bg = RED;
+    } else {
+        target_expr = EXPR_HAPPY;
+        target_bg = BLUE;
+    }
+
+    if (target_expr != current_expr || target_bg != current_bg_color) {
+        current_expr = target_expr;
+        current_bg_color = target_bg;
+        Draw_Expression(current_expr, current_bg_color);
+    }
+}
+
+// ============================================================================
+// [스마트카 모터 및 센서 로직]
+// ============================================================================
+int LF(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 1); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); break; case 0: HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 1); break; case 2: HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); break; } return 0; }
+int LB(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 1); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); break; case 0: HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 1); break; case 2: HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); break; } return 0; }
+int RF(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 1); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); break; case 0: HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 1); break; case 2: HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); break; } return 0; }
+int RB(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 1); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); break; case 0: HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 1); break; case 2: HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); break; } return 0; }
+void MF() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 1); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 1); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 1); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 1); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
+void MB() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 1); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 1); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 1); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 1); }
+void ML() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 1); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 1); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
+void MR() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 1); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 1); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
+void ST() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
+int TLF(){ RF(1); RB(1); LF(2); LB(2); return 0; } int TRF(){ RF(2); RB(2); LF(1); LB(1); return 0; }
+int TLB(){ RF(0); RB(0); LF(2); LB(2); return 0; } int TRB(){ RF(2); RB(2); LF(0); LB(0); return 0; }
+int LFRB(){ RF(0); RB(0); LF(1); LB(1); return 0; } int RFLB(){ RF(1); RB(1); LF(0); LB(0); return 0; }
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART2) {
+        HAL_UART_Transmit(&huart2, &rx_data, 1, 10);
+        if (is_avoiding == 0 && is_emergency == 0 && is_fire == 0) {
+            last_cmd_time = HAL_GetTick();
+            switch (rx_data) {
+                case 'W': case 'w': MF(); break; case 'A': case 'a': ML(); break;
+                case 'D': case 'd': MR(); break; case 'S': case 's': MB(); break;
+                case 'Q': case 'q': TLF(); break; case 'E': case 'e': TRF(); break;
+                case 'Z': case 'z': TLB(); break; case 'C': case 'c': TRB(); break;
+                case 'R': case 'r': LFRB(); break; case 'T': case 't': RFLB(); break;
+                default: ST(); break;
+            }
+        }
+        HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+    }
+}
+
+void Check_Tilt_State(void) {
+    static uint32_t tilt_start_time = 0;
+    if (HAL_GPIO_ReadPin(C6_GPIO_Port, C6_Pin) == GPIO_PIN_SET) {
+        if (tilt_start_time == 0) tilt_start_time = HAL_GetTick();
+        if (HAL_GetTick() - tilt_start_time > 2000) {
+            ST(); is_emergency = 1;
+            HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1);
+            HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1);
+            __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 500);
+            printf("⚠️차량 전복됨!!\r\n");
+            tilt_start_time = 0;
+        }
+    } else { tilt_start_time = 0; }
+}
+
+void Check_Fire_State(void) {
+    if (HAL_GPIO_ReadPin(FLAME_GPIO_Port, FLAME_Pin) == GPIO_PIN_SET) {
+        if (is_fire == 0) {
+            ST(); is_fire = 1;
+            __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 500);
+            HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1);
+            HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1);
+            printf("🔥 화재 발생!\r\n");
+        }
+    }
+}
+
+void Avoid_Obstacle_Routine(void) {
+    is_avoiding = 1; ST(); HAL_Delay(500);
+    uint32_t last_avoid_light_check = 0;
+    trig3(); echo_time3 = echo3(); dist3 = (echo_time3 > 0 && echo_time3 < 23000) ? (int)(17 * echo_time3 / 100) : 999; delay_us(15000);
+    trig4(); echo_time4 = echo4(); dist4 = (echo_time4 > 0 && echo_time4 < 23000) ? (int)(17 * echo_time4 / 100) : 999;
+    int escape_plan = 0;
+    if (dist3 <= 150 && dist4 > 150) escape_plan = 1; else if (dist4 <= 150 && dist3 > 150) escape_plan = 2; else if (dist3 > 150 && dist4 > 150) escape_plan = 3; else escape_plan = 4;
+    printf("회피기동모드: %d\r\n", escape_plan);
+    while (1) {
+        Check_Tilt_State(); Check_Fire_State(); Update_Face_Logic();
+        if (is_emergency == 1 || is_fire == 1) { ST(); is_avoiding = 0; break; }
+        if (HAL_GetTick() - last_avoid_light_check > 500) { Check_Light(); last_avoid_light_check = HAL_GetTick(); }
+        trig1(); echo_time1 = echo1(); dist1 = (echo_time1 > 0 && echo_time1 < 23000) ? (int)(17 * echo_time1 / 100) : 999; delay_us(2000);
+        trig2(); echo_time2 = echo2(); dist2 = (echo_time2 > 0 && echo_time2 < 23000) ? (int)(17 * echo_time2 / 100) : 999;
+        if (dist1 > 350 && dist2 > 350) { ST(); is_avoiding = 0; last_cmd_time = HAL_GetTick(); break; }
+        switch (escape_plan) { case 1: LFRB(); break; case 2: RFLB(); break; case 3: MB(); HAL_Delay(500); escape_plan = 2; break; case 4: MB(); break; }
+        HAL_Delay(100);
+    }
+}
+
+void timer_start(void) { HAL_TIM_Base_Start(&htim2); }
+void delay_us(uint16_t us) { __HAL_TIM_SET_COUNTER(&htim2, 0); while((__HAL_TIM_GET_COUNTER(&htim2)) < us); }
+void trig1(void) { HAL_GPIO_WritePin(TRIG1_GPIO_Port, TRIG1_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG1_GPIO_Port, TRIG1_Pin, LOW); }
+long unsigned int echo1(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO1_GPIO_Port, ECHO1_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO1_GPIO_Port, ECHO1_Pin) == HIGH) { timeout++; if(timeout > 20000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
+void trig2(void) { HAL_GPIO_WritePin(TRIG2_GPIO_Port, TRIG2_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG2_GPIO_Port, TRIG2_Pin, LOW); }
+long unsigned int echo2(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO2_GPIO_Port, ECHO2_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO2_GPIO_Port, ECHO2_Pin) == HIGH) { timeout++; if(timeout > 20000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
+void trig3(void) { HAL_GPIO_WritePin(TRIG3_GPIO_Port, TRIG3_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG3_GPIO_Port, TRIG3_Pin, LOW); }
+long unsigned int echo3(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO3_GPIO_Port, ECHO3_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO3_GPIO_Port, ECHO3_Pin) == HIGH) { timeout++; if(timeout > 40000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
+void trig4(void) { HAL_GPIO_WritePin(TRIG4_GPIO_Port, TRIG4_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG4_GPIO_Port, TRIG4_Pin, LOW); }
+long unsigned int echo4(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO4_GPIO_Port, ECHO4_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO4_GPIO_Port, ECHO4_Pin) == HIGH) { timeout++; if(timeout > 40000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
+
+void Check_Light(void)
+{
+    uint32_t adc_value = 0; float voltage = 0.0f;
+    HAL_ADC_Start(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK) {
+        adc_value = HAL_ADC_GetValue(&hadc1); voltage = (adc_value * 3.3f) / 4095.0f;
+        if (voltage < 2.0f && is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1); }
+        else if (is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0); }
+    }
+    HAL_ADC_Stop(&hadc1);
+}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) { }
 /* USER CODE END 0 */
 
 /**
@@ -730,307 +1030,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-// ============================================================================
-// [DHT11 온습도 센서 함수 구현]
-// ============================================================================
-void DHT11_SetPinOutput(void) {
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = DHT11_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
-}
-
-void DHT11_SetPinInput(void) {
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = DHT11_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
-}
-
-void DHT11_SetPin(GPIO_PinState state) {
-    HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, state);
-}
-
-GPIO_PinState DHT11_ReadPin(void) {
-    return HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN);
-}
-
-void DHT11_DelayUs(uint32_t us) {
-    __HAL_TIM_SET_COUNTER(&htim1, 0);
-    while (__HAL_TIM_GET_COUNTER(&htim1) < us);
-}
-
-uint8_t DHT11_Start(void) {
-    uint8_t response = 0;
-    DHT11_SetPinOutput();
-    DHT11_SetPin(GPIO_PIN_RESET); HAL_Delay(20);
-    DHT11_SetPin(GPIO_PIN_SET); DHT11_DelayUs(30);
-    DHT11_SetPinInput();
-    DHT11_DelayUs(40);
-    if (!(DHT11_ReadPin())) {
-        DHT11_DelayUs(80);
-        if (DHT11_ReadPin()) response = 1; else response = 0;
-    }
-    while (DHT11_ReadPin());
-    return response;
-}
-
-uint8_t DHT11_ReadByte(void) {
-    uint8_t byte = 0;
-    for (int i = 0; i < 8; i++) {
-        while (!(DHT11_ReadPin()));
-        DHT11_DelayUs(30);
-        if (DHT11_ReadPin()) { byte |= (1 << (7 - i)); while (DHT11_ReadPin()); }
-    }
-    return byte;
-}
-
-uint8_t DHT11_ReadData(DHT11_Data *data) {
-    if (!DHT11_Start()) return 0;
-    data->humidity = DHT11_ReadByte();
-    data->hum_decimal = DHT11_ReadByte();
-    data->temperature = DHT11_ReadByte();
-    data->temp_decimal = DHT11_ReadByte();
-    data->checksum = DHT11_ReadByte();
-    if ((data->humidity + data->hum_decimal + data->temperature + data->temp_decimal) == data->checksum) return 1;
-    return 0;
-}
-
-// ============================================================================
-// [LCD 그래픽 함수 구현]
-// ============================================================================
-static void LCD_Cmd(uint8_t cmd) {
-    LCD_DC_LOW(); LCD_CS_LOW(); HAL_SPI_Transmit(&hspi1, &cmd, 1, 10); LCD_CS_HIGH();
-}
-static void LCD_Data(uint8_t data) {
-    LCD_DC_HIGH(); LCD_CS_LOW(); HAL_SPI_Transmit(&hspi1, &data, 1, 10); LCD_CS_HIGH();
-}
-static void LCD_SetWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    LCD_Cmd(ST7735_CASET); LCD_Data(0); LCD_Data(x0 + X_OFFSET); LCD_Data(0); LCD_Data(x1 + X_OFFSET);
-    LCD_Cmd(ST7735_RASET); LCD_Data(0); LCD_Data(y0 + Y_OFFSET); LCD_Data(0); LCD_Data(y1 + Y_OFFSET);
-    LCD_Cmd(ST7735_RAMWR);
-}
-static void LCD_WriteColorFast(uint16_t color, uint32_t count) {
-    uint8_t hi = color >> 8; uint8_t lo = color & 0xFF;
-    LCD_DC_HIGH(); LCD_CS_LOW();
-    while(count--) { HAL_SPI_Transmit(&hspi1, &hi, 1, 10); HAL_SPI_Transmit(&hspi1, &lo, 1, 10); }
-    LCD_CS_HIGH();
-}
-static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
-    if(x >= LCD_WIDTH || y >= LCD_HEIGHT || w <= 0 || h <= 0) return;
-    if(x + w > LCD_WIDTH) w = LCD_WIDTH - x;
-    if(y + h > LCD_HEIGHT) h = LCD_HEIGHT - y;
-    LCD_SetWindow(x, y, x + w - 1, y + h - 1);
-    LCD_WriteColorFast(color, (uint32_t)w * h);
-}
-void LCD_Clear(uint16_t color) { LCD_FillRect(0, 0, LCD_WIDTH, LCD_HEIGHT, color); }
-
-static void LCD_HLine(int16_t x, int16_t y, int16_t w, uint16_t color) { LCD_FillRect(x, y, w, 1, color); }
-static void LCD_FillCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color) {
-    int16_t x = r, y = 0, err = 1 - r;
-    while(x >= y) {
-        LCD_HLine(x0 - x, y0 + y, x * 2 + 1, color); LCD_HLine(x0 - x, y0 - y, x * 2 + 1, color);
-        LCD_HLine(x0 - y, y0 + x, y * 2 + 1, color); LCD_HLine(x0 - y, y0 - x, y * 2 + 1, color);
-        y++; if(err < 0) err += 2 * y + 1; else { x--; err += 2 * (y - x + 1); }
-    }
-}
-static void LCD_RoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t r, uint16_t color) {
-    LCD_FillRect(x+r, y, w-2*r, h, color); LCD_FillRect(x, y+r, r, h-2*r, color);
-    LCD_FillRect(x+w-r, y+r, r, h-2*r, color);
-    LCD_FillCircle(x+r, y+r, r, color); LCD_FillCircle(x+w-r-1, y+r, r, color);
-    LCD_FillCircle(x+r, y+h-r-1, r, color); LCD_FillCircle(x+w-r-1, y+h-r-1, r, color);
-}
-static void LCD_ThickLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t t, uint16_t color) {
-    int16_t dx = abs(x1-x0), dy = abs(y1-y0), sx = (x0<x1)?1:-1, sy = (y0<y1)?1:-1, err = dx-dy;
-    while(1) {
-        LCD_FillRect(x0-t/2, y0-t/2, t, t, color);
-        if(x0==x1 && y0==y1) break;
-        int16_t e2=2*err; if(e2 > -dy){err-=dy; x0+=sx;} if(e2 < dx){err+=dx; y0+=sy;}
-    }
-}
-
-// [눈 그리기]
-static void Eye_Normal(int16_t cx, int16_t ox, int16_t oy) {
-    LCD_RoundRect(cx - EYE_W/2, CY - EYE_H/2, EYE_W, EYE_H, EYE_R, EYE_COLOR);
-    LCD_FillCircle(cx - 5 + ox, CY - 8 + oy, 4, EYE_BRIGHT);
-}
-static void Eye_Happy(int16_t cx) {
-    for(int16_t i = -EYE_W/2 + 2; i <= EYE_W/2 - 2; i++) {
-        int32_t n = (int32_t)i * i * 100 / ((EYE_W/2) * (EYE_W/2));
-        int16_t y = CY + 5 - (12 * (100 - n) / 100);
-        LCD_FillRect(cx + i, y - 3, 2, 5, EYE_COLOR);
-    }
-}
-// 악마 눈 (수정본)
-static void Eye_Angry(int16_t cx, uint8_t is_left) {
-    LCD_RoundRect(cx - EYE_W/2, CY - EYE_H/2 + 10, EYE_W, EYE_H - 14, EYE_R - 3, EYE_COLOR);
-    int16_t horn_base_inx = 5; int16_t horn_base_iny = 8;
-    int16_t horn_tip_outx = 12; int16_t horn_tip_outy = 12;
-    uint16_t horn_color = BLACK;
-
-    if(is_left) {
-        LCD_ThickLine(cx - EYE_W/2 + horn_base_inx, CY - EYE_H/2 + horn_base_iny, cx - EYE_W/2 - horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 6, horn_color);
-        LCD_ThickLine(cx - EYE_W/2 - horn_tip_outx + 3, CY - EYE_H/2 - horn_tip_outy + 3, cx - EYE_W/2 - horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 2, horn_color);
-        LCD_FillCircle(cx + 4, CY + 3, 4, BLACK);
-    } else {
-        LCD_ThickLine(cx + EYE_W/2 - horn_base_inx, CY - EYE_H/2 + horn_base_iny, cx + EYE_W/2 + horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 6, horn_color);
-        LCD_ThickLine(cx + EYE_W/2 + horn_tip_outx - 3, CY - EYE_H/2 - horn_tip_outy + 3, cx + EYE_W/2 + horn_tip_outx, CY - EYE_H/2 - horn_tip_outy, 2, horn_color);
-        LCD_FillCircle(cx - 4, CY + 3, 4, BLACK);
-    }
-    if(is_left) LCD_ThickLine(cx - EYE_W/2 - 2, CY - EYE_H/2 + 12, cx + EYE_W/2 + 2, CY - EYE_H/2 + 2, 4, EYE_COLOR);
-    else LCD_ThickLine(cx - EYE_W/2 - 2, CY - EYE_H/2 + 2, cx + EYE_W/2 + 2, CY - EYE_H/2 + 12, 4, EYE_COLOR);
-}
-
-void Draw_Expression(Expression_t expr, uint16_t bg_color) {
-    LCD_Clear(bg_color);
-    switch(expr) {
-        case EXPR_NORMAL: Eye_Normal(LX,0,0); Eye_Normal(RX,0,0); break;
-        case EXPR_HAPPY:  Eye_Happy(LX); Eye_Happy(RX); break;
-        case EXPR_ANGRY:  Eye_Angry(LX,1); Eye_Angry(RX,0); break;
-        default: Eye_Normal(LX,0,0); Eye_Normal(RX,0,0); break;
-    }
-}
-
-void LCD_Init(void) {
-    LCD_RES_LOW(); HAL_Delay(50); LCD_RES_HIGH(); HAL_Delay(50);
-    LCD_Cmd(ST7735_SWRESET); HAL_Delay(150);
-    LCD_Cmd(ST7735_SLPOUT); HAL_Delay(150);
-    LCD_Cmd(0xB1); LCD_Data(0x01); LCD_Data(0x2C); LCD_Data(0x2D);
-    LCD_Cmd(0xB4); LCD_Data(0x07);
-    LCD_Cmd(0xC0); LCD_Data(0xA2); LCD_Data(0x02); LCD_Data(0x84);
-    LCD_Cmd(ST7735_MADCTL); LCD_Data(0x60);
-    LCD_Cmd(ST7735_COLMOD); LCD_Data(0x05);
-    LCD_Cmd(ST7735_NORON); HAL_Delay(10);
-    LCD_Cmd(ST7735_DISPON); HAL_Delay(100);
-}
-
-void Update_Face_Logic(void) {
-    Expression_t target_expr = EXPR_HAPPY;
-    uint16_t target_bg = BLUE;
-
-    if (is_emergency == 1 || is_fire == 1) {
-        target_expr = EXPR_ANGRY;
-        target_bg = RED;
-    } else {
-        target_expr = EXPR_HAPPY;
-        target_bg = BLUE;
-    }
-
-    if (target_expr != current_expr || target_bg != current_bg_color) {
-        current_expr = target_expr;
-        current_bg_color = target_bg;
-        Draw_Expression(current_expr, current_bg_color);
-    }
-}
-
-// ============================================================================
-// [스마트카 모터 및 센서 로직]
-// ============================================================================
-int LF(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 1); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); break; case 0: HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 1); break; case 2: HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); break; } return 0; }
-int LB(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 1); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); break; case 0: HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 1); break; case 2: HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); break; } return 0; }
-int RF(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 1); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); break; case 0: HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 1); break; case 2: HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); break; } return 0; }
-int RB(int dir){ switch(dir){ case 1: HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 1); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); break; case 0: HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 1); break; case 2: HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); break; } return 0; }
-void MF() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 1); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 1); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 1); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 1); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
-void MB() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 1); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 1); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 1); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 1); }
-void ML() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 1); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 1); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
-void MR() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 1); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 1); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
-void ST() { HAL_GPIO_WritePin(LFF_GPIO_Port, LFF_Pin, 0); HAL_GPIO_WritePin(LFB_GPIO_Port, LFB_Pin, 0); HAL_GPIO_WritePin(RFF_GPIO_Port, RFF_Pin, 0); HAL_GPIO_WritePin(RFB_GPIO_Port, RFB_Pin, 0); HAL_GPIO_WritePin(LBF_GPIO_Port, LBF_Pin, 0); HAL_GPIO_WritePin(LBB_GPIO_Port, LBB_Pin, 0); HAL_GPIO_WritePin(RBF_GPIO_Port, RBF_Pin, 0); HAL_GPIO_WritePin(RBB_GPIO_Port, RBB_Pin, 0); }
-int TLF(){ RF(1); RB(1); LF(2); LB(2); return 0; } int TRF(){ RF(2); RB(2); LF(1); LB(1); return 0; }
-int TLB(){ RF(0); RB(0); LF(2); LB(2); return 0; } int TRB(){ RF(2); RB(2); LF(0); LB(0); return 0; }
-int LFRB(){ RF(0); RB(0); LF(1); LB(1); return 0; } int RFLB(){ RF(1); RB(1); LF(0); LB(0); return 0; }
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-    if (huart->Instance == USART2) {
-        HAL_UART_Transmit(&huart2, &rx_data, 1, 10);
-        if (is_avoiding == 0 && is_emergency == 0 && is_fire == 0) {
-            last_cmd_time = HAL_GetTick();
-            switch (rx_data) {
-                case 'W': case 'w': MF(); break; case 'A': case 'a': ML(); break;
-                case 'D': case 'd': MR(); break; case 'S': case 's': MB(); break;
-                case 'Q': case 'q': TLF(); break; case 'E': case 'e': TRF(); break;
-                case 'Z': case 'z': TLB(); break; case 'C': case 'c': TRB(); break;
-                case 'R': case 'r': LFRB(); break; case 'T': case 't': RFLB(); break;
-                default: ST(); break;
-            }
-        }
-        HAL_UART_Receive_IT(&huart2, &rx_data, 1);
-    }
-}
-
-void Check_Tilt_State(void) {
-    static uint32_t tilt_start_time = 0;
-    if (HAL_GPIO_ReadPin(C6_GPIO_Port, C6_Pin) == GPIO_PIN_SET) {
-        if (tilt_start_time == 0) tilt_start_time = HAL_GetTick();
-        if (HAL_GetTick() - tilt_start_time > 2000) {
-            ST(); is_emergency = 1;
-            HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1);
-            HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1);
-            __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 500);
-            printf("⚠️차량 전복됨!!\r\n");
-            tilt_start_time = 0;
-        }
-    } else { tilt_start_time = 0; }
-}
-
-void Check_Fire_State(void) {
-    if (HAL_GPIO_ReadPin(FLAME_GPIO_Port, FLAME_Pin) == GPIO_PIN_SET) {
-        if (is_fire == 0) {
-            ST(); is_fire = 1;
-            __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 500);
-            HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1);
-            HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1);
-            printf("🔥 화재 발생!\r\n");
-        }
-    }
-}
-
-void Avoid_Obstacle_Routine(void) {
-    is_avoiding = 1; ST(); HAL_Delay(500);
-    uint32_t last_avoid_light_check = 0;
-    trig3(); echo_time3 = echo3(); dist3 = (echo_time3 > 0 && echo_time3 < 23000) ? (int)(17 * echo_time3 / 100) : 999; delay_us(15000);
-    trig4(); echo_time4 = echo4(); dist4 = (echo_time4 > 0 && echo_time4 < 23000) ? (int)(17 * echo_time4 / 100) : 999;
-    int escape_plan = 0;
-    if (dist3 <= 150 && dist4 > 150) escape_plan = 1; else if (dist4 <= 150 && dist3 > 150) escape_plan = 2; else if (dist3 > 150 && dist4 > 150) escape_plan = 3; else escape_plan = 4;
-    printf("회피기동모드: %d\r\n", escape_plan);
-    while (1) {
-        Check_Tilt_State(); Check_Fire_State(); Update_Face_Logic();
-        if (is_emergency == 1 || is_fire == 1) { ST(); is_avoiding = 0; break; }
-        if (HAL_GetTick() - last_avoid_light_check > 500) { Check_Light(); last_avoid_light_check = HAL_GetTick(); }
-        trig1(); echo_time1 = echo1(); dist1 = (echo_time1 > 0 && echo_time1 < 23000) ? (int)(17 * echo_time1 / 100) : 999; delay_us(2000);
-        trig2(); echo_time2 = echo2(); dist2 = (echo_time2 > 0 && echo_time2 < 23000) ? (int)(17 * echo_time2 / 100) : 999;
-        if (dist1 > 350 && dist2 > 350) { ST(); is_avoiding = 0; last_cmd_time = HAL_GetTick(); break; }
-        switch (escape_plan) { case 1: LFRB(); break; case 2: RFLB(); break; case 3: MB(); HAL_Delay(500); escape_plan = 2; break; case 4: MB(); break; }
-        HAL_Delay(100);
-    }
-}
-
-void timer_start(void) { HAL_TIM_Base_Start(&htim2); }
-void delay_us(uint16_t us) { __HAL_TIM_SET_COUNTER(&htim2, 0); while((__HAL_TIM_GET_COUNTER(&htim2)) < us); }
-void trig1(void) { HAL_GPIO_WritePin(TRIG1_GPIO_Port, TRIG1_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG1_GPIO_Port, TRIG1_Pin, LOW); }
-long unsigned int echo1(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO1_GPIO_Port, ECHO1_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO1_GPIO_Port, ECHO1_Pin) == HIGH) { timeout++; if(timeout > 20000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
-void trig2(void) { HAL_GPIO_WritePin(TRIG2_GPIO_Port, TRIG2_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG2_GPIO_Port, TRIG2_Pin, LOW); }
-long unsigned int echo2(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO2_GPIO_Port, ECHO2_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO2_GPIO_Port, ECHO2_Pin) == HIGH) { timeout++; if(timeout > 20000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
-void trig3(void) { HAL_GPIO_WritePin(TRIG3_GPIO_Port, TRIG3_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG3_GPIO_Port, TRIG3_Pin, LOW); }
-long unsigned int echo3(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO3_GPIO_Port, ECHO3_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO3_GPIO_Port, ECHO3_Pin) == HIGH) { timeout++; if(timeout > 40000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
-void trig4(void) { HAL_GPIO_WritePin(TRIG4_GPIO_Port, TRIG4_Pin, HIGH); delay_us(10); HAL_GPIO_WritePin(TRIG4_GPIO_Port, TRIG4_Pin, LOW); }
-long unsigned int echo4(void) { long unsigned int echo = 0; int timeout = 0; while(HAL_GPIO_ReadPin(ECHO4_GPIO_Port, ECHO4_Pin) == LOW) { timeout++; if(timeout > 5000) return 0; } __HAL_TIM_SET_COUNTER(&htim2, 0); timeout = 0; while(HAL_GPIO_ReadPin(ECHO4_GPIO_Port, ECHO4_Pin) == HIGH) { timeout++; if(timeout > 40000) return 0; } echo = __HAL_TIM_GET_COUNTER(&htim2); return echo; }
-
-void Check_Light(void)
-{
-    uint32_t adc_value = 0; float voltage = 0.0f;
-    HAL_ADC_Start(&hadc1);
-    if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK) {
-        adc_value = HAL_ADC_GetValue(&hadc1); voltage = (adc_value * 3.3f) / 4095.0f;
-        if (voltage < 2.0f && is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1); }
-        else if (is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0); }
-    }
-    HAL_ADC_Stop(&hadc1);
-}
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) { }
 /* USER CODE END 4 */
 
 /**
