@@ -409,7 +409,7 @@ void Check_Tilt_State(void) {
             HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1);
             HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 500);
-            printf("⚠️차량 전복됨!!\r\n");
+            printf("⚠️Car Fliped!!\r\n");
             tilt_start_time = 0;
         }
     } else { tilt_start_time = 0; }
@@ -422,7 +422,7 @@ void Check_Fire_State(void) {
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 500);
             HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1);
             HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1);
-            printf("🔥 화재 발생!\r\n");
+            printf("🔥 FIRE!\r\n");
         }
     }
 }
@@ -434,7 +434,8 @@ void Avoid_Obstacle_Routine(void) {
     trig4(); echo_time4 = echo4(); dist4 = (echo_time4 > 0 && echo_time4 < 23000) ? (int)(17 * echo_time4 / 100) : 999;
     int escape_plan = 0;
     if (dist3 <= 150 && dist4 > 150) escape_plan = 1; else if (dist4 <= 150 && dist3 > 150) escape_plan = 2; else if (dist3 > 150 && dist4 > 150) escape_plan = 3; else escape_plan = 4;
-    printf("회피기동모드: %d\r\n", escape_plan);
+    printf("Avoid: %d\r\n", escape_plan);
+    printf("D3:%d D4:%d",dist3,dist4);
     while (1) {
         Check_Tilt_State(); Check_Fire_State(); Update_Face_Logic();
         if (is_emergency == 1 || is_fire == 1) { ST(); is_avoiding = 0; break; }
@@ -464,8 +465,8 @@ void Check_Light(void)
     HAL_ADC_Start(&hadc1);
     if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK) {
         adc_value = HAL_ADC_GetValue(&hadc1); voltage = (adc_value * 3.3f) / 4095.0f;
-        if (voltage < 2.0f && is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1); }
-        else if (is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0); }
+        if (voltage < 2.0f && is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 1); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 1); printf("Dark\r\n"); }
+        else if (is_fire == 0) { HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0); HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0); printf("Bright\r\n"); }
     }
     HAL_ADC_Stop(&hadc1);
 }
@@ -559,7 +560,7 @@ int main(void)
                   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
                   HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0);
                   HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0);
-                  printf("차체 복구!\r\n");
+                  printf("Car Recovered!\r\n");
                   continue;
               }
           }
@@ -584,14 +585,14 @@ int main(void)
                   HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0);
                   HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0);
                   is_avoiding = 0; last_cmd_time = HAL_GetTick();
-                  printf("화재 진압완료!\r\n");
+                  printf("FIRE OFF!\r\n");
                   continue;
               }
           }
           continue;
       }
 
-      if (HAL_GetTick() - last_light_check_time > 500) { Check_Light(); last_light_check_time = HAL_GetTick(); }
+      if (HAL_GetTick() - last_light_check_time > 2000) { Check_Light(); last_light_check_time = HAL_GetTick(); }
       if (is_avoiding == 1) continue;
       if (HAL_GetTick() - last_cmd_time > AUTO_STOP_DELAY) ST();
 
