@@ -854,12 +854,12 @@ static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
  80008d6:	f9b7 3000 	ldrsh.w	r3, [r7]
  80008da:	2b00      	cmp	r3, #0
  80008dc:	dd34      	ble.n	8000948 <LCD_FillRect+0xa8>
-    if(x+w > LCD_WIDTH) w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
+    if(x+w > LCD_WIDTH){ w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
  80008de:	f9b7 2006 	ldrsh.w	r2, [r7, #6]
  80008e2:	f9b7 3002 	ldrsh.w	r3, [r7, #2]
  80008e6:	4413      	add	r3, r2
  80008e8:	2ba0      	cmp	r3, #160	@ 0xa0
- 80008ea:	dd04      	ble.n	80008f6 <LCD_FillRect+0x56>
+ 80008ea:	dd2e      	ble.n	800094a <LCD_FillRect+0xaa>
  80008ec:	88fb      	ldrh	r3, [r7, #6]
  80008ee:	f1c3 03a0 	rsb	r3, r3, #160	@ 0xa0
  80008f2:	b29b      	uxth	r3, r3
@@ -901,6 +901,7 @@ static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
  8000946:	e000      	b.n	800094a <LCD_FillRect+0xaa>
     if(x >= LCD_WIDTH || y >= LCD_HEIGHT || w <= 0 || h <= 0) return;
  8000948:	bf00      	nop
+    }
 }
  800094a:	370c      	adds	r7, #12
  800094c:	46bd      	mov	sp, r7

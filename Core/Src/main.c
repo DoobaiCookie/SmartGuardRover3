@@ -176,9 +176,10 @@ static void LCD_WriteColorFast(uint16_t color, uint32_t count) {
 }
 static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
     if(x >= LCD_WIDTH || y >= LCD_HEIGHT || w <= 0 || h <= 0) return;
-    if(x+w > LCD_WIDTH) w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
+    if(x+w > LCD_WIDTH){ w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
     LCD_SetWindow(x, y, x + w - 1, y + h - 1);
     LCD_WriteColorFast(color, (uint32_t)w * h);
+    }
 }
 void LCD_Clear(uint16_t color) { LCD_FillRect(0, 0, LCD_WIDTH, LCD_HEIGHT, color); }
 
