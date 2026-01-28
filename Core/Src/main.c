@@ -1,5 +1,5 @@
 /* USER CODE BEGIN Header */
-/** 홍민국
+/**
   ******************************************************************************
   * @file           : main.c
   * @brief          : Smart Car + LCD Eye Animation (Integration)
@@ -18,6 +18,18 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+// ============================================================================
+// [온습도]
+// ============================================================================
+typedef struct {
+    uint8_t temperature;
+    uint8_t humidity;
+    uint8_t temp_decimal;
+    uint8_t hum_decimal;
+    uint8_t checksum;
+} DHT11_Data;
+
 // ============================================================================
 // [LCD 관련 설정 및 매크로]
 // ============================================================================
@@ -76,6 +88,10 @@ typedef enum {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+//온습도//
+#define DHT11_PORT GPIOA
+#define DHT11_PIN GPIO_PIN_0
+///
 #define HIGH 1
 #define LOW 0
 #define AUTO_STOP_DELAY 200
@@ -89,6 +105,10 @@ TIM_HandleTypeDef htim3;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+///온습도///
+DHT11_Data dht11_data;
+char uart_buffer[100];
+/////
 uint8_t rx_data;
 long unsigned int echo_time1, echo_time2, echo_time3, echo_time4;
 int dist1, dist2, dist3, dist4;
@@ -113,7 +133,21 @@ static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_SPI1_Init(void);
 
+//온습도//
+static void MX_TIM1_Init(void);
+
 /* USER CODE BEGIN PFP */
+//온습도//
+void DHT11_SetPinOutput(void);
+void DHT11_SetPinInput(void);
+void DHT11_SetPin(GPIO_PinState state);
+GPIO_PinState DHT11_ReadPin(void);
+void DHT11_DelayUs(uint32_t us);
+uint8_t DHT11_Start(void);
+uint8_t DHT11_ReadBit(void);
+uint8_t DHT11_ReadByte(void);
+uint8_t DHT11_ReadData(DHT11_Data *data);
+
 // 스마트카 함수
 void Avoid_Obstacle_Routine(void);
 void trig1(void); long unsigned int echo1(void);
@@ -145,7 +179,120 @@ PUTCHAR_PROTOTYPE {
     HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, 10);
     return ch;
 }
+//온습도//
+void DHT11_SetPinOutput(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = DHT11_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
+}
 
+void DHT11_SetPinInput(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = DHT11_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
+}
+
+void DHT11_SetPin(GPIO_PinState state) {
+    HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, state);
+}
+
+GPIO_PinState DHT11_ReadPin(void) {
+    return HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN);
+}
+
+void DHT11_DelayUs(uint32_t us) {
+    __HAL_TIM_SET_COUNTER(&htim1, 0);
+    while (__HAL_TIM_GET_COUNTER(&htim1) < us);
+}
+
+uint8_t DHT11_Start(void) {
+    uint8_t response = 0;
+
+    // 출력 모드로 설정
+    DHT11_SetPinOutput();
+
+    // 시작 신호 전송 (18ms LOW)
+    DHT11_SetPin(GPIO_PIN_RESET);
+    HAL_Delay(20);  // 18ms -> 20ms로 변경 (더 안정적)
+
+    // HIGH로 변경 후 20-40us 대기
+    DHT11_SetPin(GPIO_PIN_SET);
+    DHT11_DelayUs(30);
+
+    // 입력 모드로 변경
+    DHT11_SetPinInput();
+
+    // DHT11 응답 확인 (80us LOW + 80us HIGH)
+    DHT11_DelayUs(40);
+
+    if (!(DHT11_ReadPin())) {
+        DHT11_DelayUs(80);
+        if (DHT11_ReadPin()) {
+            response = 1;
+        } else {
+            response = 0;
+        }
+    }
+
+    // HIGH가 끝날 때까지 대기
+    while (DHT11_ReadPin());
+
+    return response;
+}
+
+uint8_t DHT11_ReadBit(void) {
+    // LOW 신호가 끝날 때까지 대기 (50us)
+    while (!(DHT11_ReadPin()));
+
+    // HIGH 신호 시작 후 30us 대기
+    DHT11_DelayUs(30);
+
+    // 여전히 HIGH면 1, LOW면 0
+    if (DHT11_ReadPin()) {
+        // HIGH가 끝날 때까지 대기
+        while (DHT11_ReadPin());
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+uint8_t DHT11_ReadByte(void) {
+    uint8_t byte = 0;
+    for (int i = 0; i < 8; i++) {
+        byte = (byte << 1) | DHT11_ReadBit();
+    }
+    return byte;
+}
+
+uint8_t DHT11_ReadData(DHT11_Data *data) {
+    if (!DHT11_Start()) {
+        return 0; // 시작 신호 실패
+    }
+
+    // 5바이트 데이터 읽기
+    data->humidity = DHT11_ReadByte();
+    data->hum_decimal = DHT11_ReadByte();
+    data->temperature = DHT11_ReadByte();
+    data->temp_decimal = DHT11_ReadByte();
+    data->checksum = DHT11_ReadByte();
+
+    // 체크섬 확인
+    uint8_t calculated_checksum = data->humidity + data->hum_decimal +
+                                 data->temperature + data->temp_decimal;
+
+    if (calculated_checksum == data->checksum) {
+        return 1; // 성공
+    } else {
+        return 0; // 체크섬 오류
+    }
+}
+/////////
 // ============================================================================
 // [LCD 드라이버 및 그래픽 함수] - 제공해주신 코드 기반
 // ============================================================================
@@ -470,6 +617,19 @@ int main(void)
 
       if ((dist1 < 150 && dist1 > 0) || (dist2 < 150 && dist2 > 0)) Avoid_Obstacle_Routine();
       if (HAL_GetTick() - last_print_time > 200) { printf("D: %d, %d\r\n", dist1, dist2); last_print_time = HAL_GetTick(); }
+      ////////////온습도///////////
+      static uint32_t last_dht_time = 0;
+
+      if(HAL_GetTick() - last_dht_time >= 2000)
+      {
+          if(DHT11_ReadData(&dht11_data)) {
+              printf("Temp: %d°C, Hum: %d%%\r\n",
+                     dht11_data.temperature,
+                     dht11_data.humidity);
+          }
+          last_dht_time = HAL_GetTick();
+      }
+      /////////////////온습도///////////////////
   }
 }
 
