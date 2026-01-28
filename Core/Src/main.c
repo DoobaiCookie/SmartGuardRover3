@@ -176,10 +176,9 @@ static void LCD_WriteColorFast(uint16_t color, uint32_t count) {
 }
 static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
     if(x >= LCD_WIDTH || y >= LCD_HEIGHT || w <= 0 || h <= 0) return;
-    if(x+w > LCD_WIDTH){ w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
+    if(x+w > LCD_WIDTH) w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
     LCD_SetWindow(x, y, x + w - 1, y + h - 1);
     LCD_WriteColorFast(color, (uint32_t)w * h);
-    }
 }
 void LCD_Clear(uint16_t color) { LCD_FillRect(0, 0, LCD_WIDTH, LCD_HEIGHT, color); }
 
@@ -398,7 +397,7 @@ int main(void)
   is_fire = 0; is_emergency = 0;
 
   HAL_UART_Receive_IT(&huart2, &rx_data, 1);
-  printf("\n=== SmartGuardRover With Face LCD ===\n");
+  printf("\n=== SmartGuardRover 기동 ===\n");
   last_cmd_time = HAL_GetTick();
   /* USER CODE END 2 */
 
@@ -430,7 +429,7 @@ int main(void)
                   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
                   HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0);
                   HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0);
-                  printf("Tilt Recovered.\r\n");
+                  printf("차체 복구!\r\n");
                   continue;
               }
           }
@@ -455,7 +454,7 @@ int main(void)
                   HAL_GPIO_WritePin(LED_LEFT_GPIO_Port, LED_LEFT_Pin, 0);
                   HAL_GPIO_WritePin(LED_RIGHT_GPIO_Port, LED_RIGHT_Pin, 0);
                   is_avoiding = 0; last_cmd_time = HAL_GetTick();
-                  printf("Fire Cleared.\r\n");
+                  printf("화재 진압완료!\r\n");
                   continue;
               }
           }

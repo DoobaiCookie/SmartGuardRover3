@@ -7,23 +7,23 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, ALLOC, LOAD, READONLY, DATA
   1 .text         000072b0  0800010c  0800010c  0000110c  2**2
                   CONTENTS, ALLOC, LOAD, READONLY, CODE
-  2 .rodata       0000011c  080073bc  080073bc  000083bc  2**2
+  2 .rodata       00000118  080073bc  080073bc  000083bc  2**2
                   CONTENTS, ALLOC, LOAD, READONLY, DATA
-  3 .ARM.extab    00000000  080074d8  080074d8  0000906c  2**0
+  3 .ARM.extab    00000000  080074d4  080074d4  0000906c  2**0
                   CONTENTS, READONLY
-  4 .ARM          00000000  080074d8  080074d8  0000906c  2**0
+  4 .ARM          00000000  080074d4  080074d4  0000906c  2**0
                   CONTENTS, READONLY
-  5 .preinit_array 00000000  080074d8  080074d8  0000906c  2**0
+  5 .preinit_array 00000000  080074d4  080074d4  0000906c  2**0
                   CONTENTS, ALLOC, LOAD, DATA
-  6 .init_array   00000004  080074d8  080074d8  000084d8  2**2
+  6 .init_array   00000004  080074d4  080074d4  000084d4  2**2
                   CONTENTS, ALLOC, LOAD, READONLY, DATA
-  7 .fini_array   00000004  080074dc  080074dc  000084dc  2**2
+  7 .fini_array   00000004  080074d8  080074d8  000084d8  2**2
                   CONTENTS, ALLOC, LOAD, READONLY, DATA
-  8 .data         0000006c  20000000  080074e0  00009000  2**2
+  8 .data         0000006c  20000000  080074dc  00009000  2**2
                   CONTENTS, ALLOC, LOAD, DATA
-  9 .bss          00000300  2000006c  0800754c  0000906c  2**2
+  9 .bss          00000300  2000006c  08007548  0000906c  2**2
                   ALLOC
- 10 ._user_heap_stack 00000604  2000036c  0800754c  0000936c  2**0
+ 10 ._user_heap_stack 00000604  2000036c  08007548  0000936c  2**0
                   ALLOC
  11 .ARM.attributes 00000029  00000000  00000000  0000906c  2**0
                   CONTENTS, READONLY
@@ -854,12 +854,12 @@ static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
  80008d6:	f9b7 3000 	ldrsh.w	r3, [r7]
  80008da:	2b00      	cmp	r3, #0
  80008dc:	dd34      	ble.n	8000948 <LCD_FillRect+0xa8>
-    if(x+w > LCD_WIDTH){ w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
+    if(x+w > LCD_WIDTH) w = LCD_WIDTH - x; if(y+h > LCD_HEIGHT) h = LCD_HEIGHT - y;
  80008de:	f9b7 2006 	ldrsh.w	r2, [r7, #6]
  80008e2:	f9b7 3002 	ldrsh.w	r3, [r7, #2]
  80008e6:	4413      	add	r3, r2
  80008e8:	2ba0      	cmp	r3, #160	@ 0xa0
- 80008ea:	dd2e      	ble.n	800094a <LCD_FillRect+0xaa>
+ 80008ea:	dd04      	ble.n	80008f6 <LCD_FillRect+0x56>
  80008ec:	88fb      	ldrh	r3, [r7, #6]
  80008ee:	f1c3 03a0 	rsb	r3, r3, #160	@ 0xa0
  80008f2:	b29b      	uxth	r3, r3
@@ -901,7 +901,6 @@ static void LCD_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
  8000946:	e000      	b.n	800094a <LCD_FillRect+0xaa>
     if(x >= LCD_WIDTH || y >= LCD_HEIGHT || w <= 0 || h <= 0) return;
  8000948:	bf00      	nop
-    }
 }
  800094a:	370c      	adds	r7, #12
  800094c:	46bd      	mov	sp, r7
@@ -3309,7 +3308,7 @@ int main(void)
  8001da2:	499e      	ldr	r1, [pc, #632]	@ (800201c <main+0x2dc>)
  8001da4:	489e      	ldr	r0, [pc, #632]	@ (8002020 <main+0x2e0>)
  8001da6:	f003 fdd8 	bl	800595a <HAL_UART_Receive_IT>
-  printf("\n=== SmartGuardRover With Face LCD ===\n");
+  printf("\n=== SmartGuardRover 기동 ===\n");
  8001daa:	489e      	ldr	r0, [pc, #632]	@ (8002024 <main+0x2e4>)
  8001dac:	f004 fc8e 	bl	80066cc <puts>
   last_cmd_time = HAL_GetTick();
@@ -3417,7 +3416,7 @@ int main(void)
  8001e54:	2108      	movs	r1, #8
  8001e56:	4875      	ldr	r0, [pc, #468]	@ (800202c <main+0x2ec>)
  8001e58:	f001 fe4b 	bl	8003af2 <HAL_GPIO_WritePin>
-                  printf("Tilt Recovered.\r\n");
+                  printf("차체 복구!\r\n");
  8001e5c:	4875      	ldr	r0, [pc, #468]	@ (8002034 <main+0x2f4>)
  8001e5e:	f004 fc35 	bl	80066cc <puts>
                   continue;
@@ -3507,7 +3506,7 @@ int main(void)
  8001eec:	4603      	mov	r3, r0
  8001eee:	4a4e      	ldr	r2, [pc, #312]	@ (8002028 <main+0x2e8>)
  8001ef0:	6013      	str	r3, [r2, #0]
-                  printf("Fire Cleared.\r\n");
+                  printf("화재 진압완료!\r\n");
  8001ef2:	4851      	ldr	r0, [pc, #324]	@ (8002038 <main+0x2f8>)
  8001ef4:	f004 fbea 	bl	80066cc <puts>
                   continue;
@@ -3655,14 +3654,14 @@ int main(void)
  8002028:	2000020c 	.word	0x2000020c
  800202c:	40011000 	.word	0x40011000
  8002030:	20000210 	.word	0x20000210
- 8002034:	08007434 	.word	0x08007434
- 8002038:	08007448 	.word	0x08007448
+ 8002034:	0800742c 	.word	0x0800742c
+ 8002038:	0800743c 	.word	0x0800743c
  800203c:	200001ec 	.word	0x200001ec
  8002040:	51eb851f 	.word	0x51eb851f
  8002044:	200001fc 	.word	0x200001fc
  8002048:	200001f0 	.word	0x200001f0
  800204c:	20000200 	.word	0x20000200
- 8002050:	08007458 	.word	0x08007458
+ 8002050:	08007454 	.word	0x08007454
 
 08002054 <SystemClock_Config>:
   }
@@ -5340,7 +5339,7 @@ LoopFillZerobss:
   ldr r1, =_edata
  8002a6c:	2000006c 	.word	0x2000006c
   ldr r2, =_sidata
- 8002a70:	080074e0 	.word	0x080074e0
+ 8002a70:	080074dc 	.word	0x080074dc
   ldr r2, =_sbss
  8002a74:	2000006c 	.word	0x2000006c
   ldr r4, =_ebss
@@ -9636,7 +9635,7 @@ if (((RCC_ClkInitStruct->ClockType) & RCC_CLOCKTYPE_PCLK1) == RCC_CLOCKTYPE_PCLK
  8004216:	bf00      	nop
  8004218:	40022000 	.word	0x40022000
  800421c:	40021000 	.word	0x40021000
- 8004220:	08007464 	.word	0x08007464
+ 8004220:	08007460 	.word	0x08007460
  8004224:	20000004 	.word	0x20000004
  8004228:	20000008 	.word	0x20000008
 
@@ -9771,8 +9770,8 @@ uint32_t HAL_RCC_GetSysClockFreq(void)
  80042be:	bf00      	nop
  80042c0:	40021000 	.word	0x40021000
  80042c4:	007a1200 	.word	0x007a1200
- 80042c8:	0800747c 	.word	0x0800747c
- 80042cc:	0800748c 	.word	0x0800748c
+ 80042c8:	08007478 	.word	0x08007478
+ 80042cc:	08007488 	.word	0x08007488
  80042d0:	003d0900 	.word	0x003d0900
 
 080042d4 <HAL_RCC_GetHCLKFreq>:
@@ -9818,7 +9817,7 @@ uint32_t HAL_RCC_GetPCLK1Freq(void)
  8004304:	4618      	mov	r0, r3
  8004306:	bd80      	pop	{r7, pc}
  8004308:	40021000 	.word	0x40021000
- 800430c:	08007474 	.word	0x08007474
+ 800430c:	08007470 	.word	0x08007470
 
 08004310 <HAL_RCC_GetPCLK2Freq>:
   * @note   Each time PCLK2 changes, this function must be called to update the
@@ -9844,7 +9843,7 @@ uint32_t HAL_RCC_GetPCLK2Freq(void)
  800432c:	4618      	mov	r0, r3
  800432e:	bd80      	pop	{r7, pc}
  8004330:	40021000 	.word	0x40021000
- 8004334:	08007474 	.word	0x08007474
+ 8004334:	08007470 	.word	0x08007470
 
 08004338 <RCC_Delay>:
   * @brief  This function provides delay (in milliseconds) based on CPU cycles method.
@@ -10352,8 +10351,8 @@ uint32_t HAL_RCCEx_GetPeriphCLKFreq(uint32_t PeriphClk)
  8004630:	bd80      	pop	{r7, pc}
  8004632:	bf00      	nop
  8004634:	40021000 	.word	0x40021000
- 8004638:	08007490 	.word	0x08007490
- 800463c:	080074a0 	.word	0x080074a0
+ 8004638:	0800748c 	.word	0x0800748c
+ 800463c:	0800749c 	.word	0x0800749c
  8004640:	007a1200 	.word	0x007a1200
  8004644:	003d0900 	.word	0x003d0900
  8004648:	aaaaaaab 	.word	0xaaaaaaab
@@ -16317,10 +16316,10 @@ static void UART_SetConfig(UART_HandleTypeDef *huart)
  8006966:	4798      	blx	r3
  8006968:	3601      	adds	r6, #1
  800696a:	e7f2      	b.n	8006952 <__libc_init_array+0x1e>
- 800696c:	080074d8 	.word	0x080074d8
- 8006970:	080074d8 	.word	0x080074d8
- 8006974:	080074d8 	.word	0x080074d8
- 8006978:	080074dc 	.word	0x080074dc
+ 800696c:	080074d4 	.word	0x080074d4
+ 8006970:	080074d4 	.word	0x080074d4
+ 8006974:	080074d4 	.word	0x080074d4
+ 8006978:	080074d8 	.word	0x080074d8
 
 0800697c <__retarget_lock_init_recursive>:
  800697c:	4770      	bx	lr
@@ -16817,9 +16816,9 @@ static void UART_SetConfig(UART_HandleTypeDef *huart)
  8006dd4:	a904      	add	r1, sp, #16
  8006dd6:	f000 f87d 	bl	8006ed4 <_printf_i>
  8006dda:	e7e4      	b.n	8006da6 <_vfiprintf_r+0x1e6>
- 8006ddc:	080074a2 	.word	0x080074a2
- 8006de0:	080074a8 	.word	0x080074a8
- 8006de4:	080074ac 	.word	0x080074ac
+ 8006ddc:	0800749e 	.word	0x0800749e
+ 8006de0:	080074a4 	.word	0x080074a4
+ 8006de4:	080074a8 	.word	0x080074a8
  8006de8:	00000000 	.word	0x00000000
  8006dec:	08006b9b 	.word	0x08006b9b
 
@@ -17151,8 +17150,8 @@ static void UART_SetConfig(UART_HandleTypeDef *huart)
  8007100:	2500      	movs	r5, #0
  8007102:	f104 0619 	add.w	r6, r4, #25
  8007106:	e7f5      	b.n	80070f4 <_printf_i+0x220>
- 8007108:	080074b3 	.word	0x080074b3
- 800710c:	080074c4 	.word	0x080074c4
+ 8007108:	080074af 	.word	0x080074af
+ 800710c:	080074c0 	.word	0x080074c0
 
 08007110 <__sflush_r>:
  8007110:	f9b1 200c 	ldrsh.w	r2, [r1, #12]
