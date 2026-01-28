@@ -446,7 +446,7 @@ void Avoid_Obstacle_Routine(void)
     else if (dist3 > 150 && dist4 > 150) current_plan = 3;  // 전방만 막힘
     else current_plan = 4;                                  // 꽉 막힘 (Plan 4)
 
-    printf("⚠️ Avoid:%d\r\n", current_plan);
+    printf("⚠️ Avoid:%d D3:%d D4:%d\r\n", current_plan,dist3,dist4);
 
     while (1)
     {
@@ -469,6 +469,8 @@ void Avoid_Obstacle_Routine(void)
             ST();
             is_avoiding = 0;
             last_cmd_time = HAL_GetTick();
+            dist3 = 0;
+            dist4 = 0;
 
             // ★ 정상 상태(0)로 복귀 ★
             current_plan = 0;
