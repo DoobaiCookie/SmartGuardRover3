@@ -114,6 +114,7 @@ volatile uint32_t last_cmd_time = 0;
 volatile uint8_t is_avoiding = 0;
 volatile uint8_t is_emergency = 0;
 volatile uint8_t is_fire = 0;
+volatile uint8_t current_plan = 0;
 
 Expression_t current_expr = EXPR_NORMAL;
 uint16_t current_bg_color = BLUE;
@@ -427,23 +428,61 @@ void Check_Fire_State(void) {
     }
 }
 
-void Avoid_Obstacle_Routine(void) {
-    is_avoiding = 1; ST(); HAL_Delay(500);
+void Avoid_Obstacle_Routine(void)
+{
+    is_avoiding = 1;
+    ST();
+    HAL_Delay(500);
+
     uint32_t last_avoid_light_check = 0;
+
+    // 측면 거리 측정
     trig3(); echo_time3 = echo3(); dist3 = (echo_time3 > 0 && echo_time3 < 23000) ? (int)(17 * echo_time3 / 100) : 999; delay_us(15000);
     trig4(); echo_time4 = echo4(); dist4 = (echo_time4 > 0 && echo_time4 < 23000) ? (int)(17 * echo_time4 / 100) : 999;
-    int escape_plan = 0;
-    if (dist3 <= 150 && dist4 > 150) escape_plan = 1; else if (dist4 <= 150 && dist3 > 150) escape_plan = 2; else if (dist3 > 150 && dist4 > 150) escape_plan = 3; else escape_plan = 4;
-    printf("Avoid: %d\r\n", escape_plan);
-    printf("D3:%d D4:%d",dist3,dist4);
-    while (1) {
+
+    // [상태 설정] 0:정상, 1:우회전, 2:좌회전, 3:후진좌회전, 4:후진
+    if (dist3 <= 150 && dist4 > 150) current_plan = 1;      // 왼쪽 막힘
+    else if (dist4 <= 150 && dist3 > 150) current_plan = 2; // 오른쪽 막힘
+    else if (dist3 > 150 && dist4 > 150) current_plan = 3;  // 전방만 막힘
+    else current_plan = 4;                                  // 꽉 막힘 (Plan 4)
+
+    printf("⚠️ Avoid:%d\r\n", current_plan);
+
+    while (1)
+    {
         Check_Tilt_State(); Check_Fire_State(); Update_Face_Logic();
-        if (is_emergency == 1 || is_fire == 1) { ST(); is_avoiding = 0; break; }
+
+        if (is_emergency == 1 || is_fire == 1) {
+            ST();
+            is_avoiding = 0;
+            current_plan = 0; // 비상 정지도 Plan 0(혹은 별도 처리)으로 복귀
+            break;
+        }
+
         if (HAL_GetTick() - last_avoid_light_check > 500) { Check_Light(); last_avoid_light_check = HAL_GetTick(); }
+
         trig1(); echo_time1 = echo1(); dist1 = (echo_time1 > 0 && echo_time1 < 23000) ? (int)(17 * echo_time1 / 100) : 999; delay_us(2000);
         trig2(); echo_time2 = echo2(); dist2 = (echo_time2 > 0 && echo_time2 < 23000) ? (int)(17 * echo_time2 / 100) : 999;
-        if (dist1 > 350 && dist2 > 350) { ST(); is_avoiding = 0; last_cmd_time = HAL_GetTick(); break; }
-        switch (escape_plan) { case 1: LFRB(); break; case 2: RFLB(); break; case 3: MB(); HAL_Delay(500); escape_plan = 2; break; case 4: MB(); break; }
+
+        // [탈출 조건]
+        if (dist1 > 350 && dist2 > 350) {
+            ST();
+            is_avoiding = 0;
+            last_cmd_time = HAL_GetTick();
+
+            // ★ 정상 상태(0)로 복귀 ★
+            current_plan = 0;
+            printf("Avoid Recovery\r\n");
+            break;
+        }
+
+        // 전역 변수 current_plan에 따라 동작
+        switch (current_plan) {
+            case 1: LFRB(); break;
+            case 2: RFLB(); break;
+            case 3: MB(); HAL_Delay(500); current_plan = 2; break; // 3번 후엔 2번으로
+            case 4: MB(); break; // 4번은 계속 후진
+        }
         HAL_Delay(100);
     }
 }
@@ -600,7 +639,7 @@ int main(void)
       trig2(); echo_time2 = echo2(); dist2 = (echo_time2 > 0 && echo_time2 < 23000) ? (int)(17 * echo_time2 / 100) : 999;
 
       if ((dist1 < 150 && dist1 > 0) || (dist2 < 150 && dist2 > 0)) Avoid_Obstacle_Routine();
-      if (HAL_GetTick() - last_print_time > 200) { printf("D: %d, %d\r\n", dist1, dist2); last_print_time = HAL_GetTick(); }
+      if (HAL_GetTick() - last_print_time > 200) { printf("Avoid:%d D: %d, %d\r\n",current_plan, dist1, dist2); last_print_time = HAL_GetTick(); }
 
       // [온습도 측정 - 2초 간격]
       if(HAL_GetTick() - last_dht_time >= 2000)
