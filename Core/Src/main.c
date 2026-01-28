@@ -1,5 +1,5 @@
 /* USER CODE BEGIN Header */
-/**dhsajdhsajdhjksdhakjhjk
+/**
   ******************************************************************************
   * @file           : main.c
   * @brief          : Smart Car + LCD + DHT11 (Safe for Code Gen)
