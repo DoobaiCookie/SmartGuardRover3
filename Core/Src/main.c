@@ -170,6 +170,74 @@ PUTCHAR_PROTOTYPE {
     HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, 10);
     return ch;
 }
+// ============================================================================
+// [DHT11 온습도 센서 함수 구현]
+// ============================================================================
+void DHT11_SetPinOutput(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = DHT11_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
+}
+
+void DHT11_SetPinInput(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = DHT11_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
+}
+
+void DHT11_SetPin(GPIO_PinState state) {
+    HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, state);
+}
+
+GPIO_PinState DHT11_ReadPin(void) {
+    return HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN);
+}
+
+void DHT11_DelayUs(uint32_t us) {
+    __HAL_TIM_SET_COUNTER(&htim1, 0);
+    while (__HAL_TIM_GET_COUNTER(&htim1) < us);
+}
+
+uint8_t DHT11_Start(void) {
+    uint8_t response = 0;
+    DHT11_SetPinOutput();
+    DHT11_SetPin(GPIO_PIN_RESET); HAL_Delay(20);
+    DHT11_SetPin(GPIO_PIN_SET); DHT11_DelayUs(30);
+    DHT11_SetPinInput();
+    DHT11_DelayUs(40);
+    if (!(DHT11_ReadPin())) {
+        DHT11_DelayUs(80);
+        if (DHT11_ReadPin()) response = 1; else response = 0;
+    }
+    while (DHT11_ReadPin());
+    return response;
+}
+
+uint8_t DHT11_ReadByte(void) {
+    uint8_t byte = 0;
+    for (int i = 0; i < 8; i++) {
+        while (!(DHT11_ReadPin()));
+        DHT11_DelayUs(30);
+        if (DHT11_ReadPin()) { byte |= (1 << (7 - i)); while (DHT11_ReadPin()); }
+    }
+    return byte;
+}
+
+uint8_t DHT11_ReadData(DHT11_Data *data) {
+    if (!DHT11_Start()) return 0;
+    data->humidity = DHT11_ReadByte();
+    data->hum_decimal = DHT11_ReadByte();
+    data->temperature = DHT11_ReadByte();
+    data->temp_decimal = DHT11_ReadByte();
+    data->checksum = DHT11_ReadByte();
+    if ((data->humidity + data->hum_decimal + data->temperature + data->temp_decimal) == data->checksum) return 1;
+    return 0;
+}
 /* USER CODE END 0 */
 
 /**
@@ -731,74 +799,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-// ============================================================================
-// [DHT11 온습도 센서 함수 구현]
-// ============================================================================
-void DHT11_SetPinOutput(void) {
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = DHT11_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
-}
 
-void DHT11_SetPinInput(void) {
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = DHT11_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(DHT11_PORT, &GPIO_InitStruct);
-}
-
-void DHT11_SetPin(GPIO_PinState state) {
-    HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, state);
-}
-
-GPIO_PinState DHT11_ReadPin(void) {
-    return HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN);
-}
-
-void DHT11_DelayUs(uint32_t us) {
-    __HAL_TIM_SET_COUNTER(&htim1, 0);
-    while (__HAL_TIM_GET_COUNTER(&htim1) < us);
-}
-
-uint8_t DHT11_Start(void) {
-    uint8_t response = 0;
-    DHT11_SetPinOutput();
-    DHT11_SetPin(GPIO_PIN_RESET); HAL_Delay(20);
-    DHT11_SetPin(GPIO_PIN_SET); DHT11_DelayUs(30);
-    DHT11_SetPinInput();
-    DHT11_DelayUs(40);
-    if (!(DHT11_ReadPin())) {
-        DHT11_DelayUs(80);
-        if (DHT11_ReadPin()) response = 1; else response = 0;
-    }
-    while (DHT11_ReadPin());
-    return response;
-}
-
-uint8_t DHT11_ReadByte(void) {
-    uint8_t byte = 0;
-    for (int i = 0; i < 8; i++) {
-        while (!(DHT11_ReadPin()));
-        DHT11_DelayUs(30);
-        if (DHT11_ReadPin()) { byte |= (1 << (7 - i)); while (DHT11_ReadPin()); }
-    }
-    return byte;
-}
-
-uint8_t DHT11_ReadData(DHT11_Data *data) {
-    if (!DHT11_Start()) return 0;
-    data->humidity = DHT11_ReadByte();
-    data->hum_decimal = DHT11_ReadByte();
-    data->temperature = DHT11_ReadByte();
-    data->temp_decimal = DHT11_ReadByte();
-    data->checksum = DHT11_ReadByte();
-    if ((data->humidity + data->hum_decimal + data->temperature + data->temp_decimal) == data->checksum) return 1;
-    return 0;
-}
 
 // ============================================================================
 // [LCD 그래픽 함수 구현]
