@@ -1,5 +1,5 @@
 /* USER CODE BEGIN Header */
-/**
+/** 홍민국
   ******************************************************************************
   * @file           : main.c
   * @brief          : Smart Car + LCD Eye Animation (Integration)
