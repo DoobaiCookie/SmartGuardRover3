@@ -68,6 +68,8 @@ void Error_Handler(void);
 #define LED_LEFT_GPIO_Port GPIOC
 #define LED_RIGHT_Pin GPIO_PIN_3
 #define LED_RIGHT_GPIO_Port GPIOC
+#define TEMPER_Pin GPIO_PIN_0
+#define TEMPER_GPIO_Port GPIOA
 #define LCD_RES_Pin GPIO_PIN_1
 #define LCD_RES_GPIO_Port GPIOA
 #define USART_TX_Pin GPIO_PIN_2
